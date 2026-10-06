@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# multiagy - Multi-profile manager for Antigravity CLI (agy)
+# ==============================================================================
+set -euo pipefail
+
+# Trova la vera home directory dell'utente (anche se HOME è stata sovrascritta)
+get_real_home() {
+    if command -v dscl >/dev/null 2>&1 && [ -n "${USER:-}" ]; then
+        local user_home
+        user_home="$(dscl . -read "/Users/$USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+        if [ -n "$user_home" ] && [ -d "$user_home" ]; then
+            echo "$user_home"
+            return
+        fi
+    fi
+    echo "/Users/${USER:-$(whoami)}"
+}
+
+REAL_HOME="$(get_real_home)"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$REAL_HOME/.local/share}"
+MULTIAGY_DIR="$XDG_DATA_HOME/multiagy"
+PROFILES_DIR="$MULTIAGY_DIR/profiles"
+
+# Colori per output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[multiagy]${NC} $*"; }
+log_success() { echo -e "${GREEN}[multiagy]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[multiagy]${NC} $*"; }
+log_error() { echo -e "${RED}[multiagy:error]${NC} $*" >&2; }
+
+usage() {
+    echo -e "${BOLD}multiagy${NC} - Gestore di profili multipli per Antigravity CLI (agy)
+
+${BOLD}UTILIZZO:${NC}
+  multiagy <comando> [argomenti...]
+  multiagy <nome_profilo> [opzioni agy...]
+
+${BOLD}COMANDI:${NC}
+  ${GREEN}new${NC} <profilo>        Crea un nuovo profilo con keychain vuoto e config isolate
+  ${GREEN}run${NC} <profilo> [args] Esegue agy con il profilo specificato
+  ${GREEN}list${NC}, ${GREEN}ls${NC}            Elenca tutti i profili esistenti
+  ${GREEN}rm${NC} <profilo> [-f]    Rimuove un profilo esistente (-f per saltare la conferma)
+  ${GREEN}link${NC} <profilo>       Crea un comando rapido in ~/.local/bin/agy-<profilo>
+  ${GREEN}help${NC}, ${GREEN}-h${NC}          Mostra questo messaggio di aiuto
+
+${BOLD}ESEMPI:${NC}
+  multiagy new work              # Crea il profilo 'work'
+  multiagy run work              # Avvia agy con il profilo 'work'
+  multiagy work -c               # Scorciatoia diretta per eseguire agy col profilo 'work'
+  multiagy link work             # Ora puoi digitare direttamente 'agy-work' da ovunque
+  multiagy list                  # Visualizza tutti i profili
+  multiagy rm work               # Rimuove il profilo 'work'
+
+${BOLD}STRUTTURA XDG:${NC}
+  I profili sono salvati in:
+  $PROFILES_DIR/<profilo>/
+    ├── home/           (Home virtuale con keychain dedicato e symlink ssh/git)
+    └── gemini/         (Directory dati e configurazione passata a --gemini_dir)"
+}
+
+setup_profile_environment() {
+    local profile="$1"
+    local profile_dir="$PROFILES_DIR/$profile"
+    local fake_home="$profile_dir/home"
+    local gemini_dir="$profile_dir/gemini"
+    local keychain_dir="$fake_home/Library/Keychains"
+    local keychain_file="$keychain_dir/login.keychain-db"
+
+    # Crea le directory se non esistono
+    mkdir -p "$fake_home" "$gemini_dir" "$keychain_dir"
+
+    # Collega gitconfig e ssh se presenti nella home reale
+    [ -f "$REAL_HOME/.gitconfig" ] && [ ! -e "$fake_home/.gitconfig" ] && ln -sf "$REAL_HOME/.gitconfig" "$fake_home/.gitconfig"
+    [ -d "$REAL_HOME/.ssh" ] && [ ! -e "$fake_home/.ssh" ] && ln -sf "$REAL_HOME/.ssh" "$fake_home/.ssh"
+
+    # Crea il portachiavi macOS dedicato con password vuota se mancante
+    if [ ! -f "$keychain_file" ]; then
+        if command -v security >/dev/null 2>&1; then
+            security create-keychain -p "" "$keychain_file" 2>/dev/null || true
+        fi
+    fi
+}
+
+cmd_new() {
+    local profile="${1:-}"
+    if [ -z "$profile" ]; then
+        log_error "Devi specificare un nome per il profilo. Es: multiagy new lavoro"
+        exit 1
+    fi
+
+    local profile_dir="$PROFILES_DIR/$profile"
+    if [ -d "$profile_dir" ]; then
+        log_warn "Il profilo '$profile' esiste già in: $profile_dir"
+        setup_profile_environment "$profile"
+        return 0
+    fi
+
+    log_info "Creazione del profilo '$profile' in $profile_dir..."
+    setup_profile_environment "$profile"
+    log_success "Profilo '$profile' creato con successo!"
+    echo -e "  - Home virtuale: ${profile_dir}/home"
+    echo -e "  - Gemini dir:    ${profile_dir}/gemini"
+    echo -e "  - Keychain:      ${profile_dir}/home/Library/Keychains/login.keychain-db"
+    echo -e "\nPer avviarlo: ${BOLD}multiagy run $profile${NC} oppure ${BOLD}multiagy $profile${NC}"
+}
+
+cmd_list() {
+    if [ ! -d "$PROFILES_DIR" ] || [ -z "$(ls -A "$PROFILES_DIR" 2>/dev/null)" ]; then
+        log_info "Nessun profilo presente in $PROFILES_DIR"
+        echo -e "Crea il tuo primo profilo con: ${BOLD}multiagy new <nome>${NC}"
+        return 0
+    fi
+
+    echo -e "${BOLD}Profili disponibili in $PROFILES_DIR:${NC}"
+    for d in "$PROFILES_DIR"/*; do
+        if [ -d "$d" ]; then
+            local name
+            name="$(basename "$d")"
+            local size
+            size="$(du -sh "$d" 2>/dev/null | cut -f1)"
+            local has_token="No"
+            [ -f "$d/gemini/antigravity-cli/antigravity-oauth-token" ] && has_token="Sì (autenticato)"
+
+            printf "  • %-16s [Dimensione: %-6s | Login: %s]\n" "$name" "$size" "$has_token"
+        fi
+    done
+}
+
+cmd_rm() {
+    local profile="${1:-}"
+    local force=false
+    shift || true
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -f|--force) force=true ;;
+        esac
+        shift
+    done
+
+    if [ -z "$profile" ]; then
+        log_error "Devi specificare il nome del profilo da rimuovere."
+        exit 1
+    fi
+
+    local profile_dir="$PROFILES_DIR/$profile"
+    if [ ! -d "$profile_dir" ]; then
+        log_error "Il profilo '$profile' non esiste in $PROFILES_DIR"
+        exit 1
+    fi
+
+    if [ "$force" = false ]; then
+        echo -en "${YELLOW}Sei sicuro di voler eliminare il profilo '$profile' ($profile_dir)? [s/N]: ${NC}"
+        read -r confirm
+        case "$confirm" in
+            [sS]|[sS][iI]|[yY]|[yY][eE][sS]) ;;
+            *) log_info "Operazione annullata."; return 0 ;;
+        esac
+    fi
+
+    # Rimuovi eventuale wrapper in ~/.local/bin
+    local wrapper="$REAL_HOME/.local/bin/agy-$profile"
+    [ -f "$wrapper" ] && rm -f "$wrapper"
+
+    rm -rf "$profile_dir"
+    log_success "Profilo '$profile' eliminato."
+}
+
+cmd_link() {
+    local profile="${1:-}"
+    if [ -z "$profile" ]; then
+        log_error "Devi specificare il nome del profilo da collegare."
+        exit 1
+    fi
+
+    local profile_dir="$PROFILES_DIR/$profile"
+    if [ ! -d "$profile_dir" ]; then
+        log_error "Il profilo '$profile' non esiste. Crealo prima con 'multiagy new $profile'."
+        exit 1
+    fi
+
+    local bin_dir="$REAL_HOME/.local/bin"
+    mkdir -p "$bin_dir"
+    local wrapper="$bin_dir/agy-$profile"
+
+    cat <<EOF > "$wrapper"
+#!/bin/sh
+exec multiagy run "$profile" "\$@"
+EOF
+    chmod +x "$wrapper"
+    log_success "Creato wrapper: $wrapper"
+    echo -e "Ora puoi digitare direttamente: ${BOLD}agy-$profile [argomenti]${NC}"
+}
+
+cmd_run() {
+    local profile="${1:-}"
+    if [ -z "$profile" ]; then
+        log_error "Devi specificare quale profilo eseguire."
+        exit 1
+    fi
+    shift || true
+
+    local profile_dir="$PROFILES_DIR/$profile"
+    if [ ! -d "$profile_dir" ]; then
+        log_warn "Il profilo '$profile' non esiste ancora. Creazione automatica..."
+        cmd_new "$profile"
+    else
+        setup_profile_environment "$profile"
+    fi
+
+    local fake_home="$profile_dir/home"
+    local gemini_dir="$profile_dir/gemini"
+
+    export HOME="$fake_home"
+    exec agy --dangerously-skip-permissions --gemini_dir="$gemini_dir" "$@"
+}
+
+# Entrypoint principale
+main() {
+    if [ $# -eq 0 ]; then
+        usage
+        exit 0
+    fi
+
+    local cmd="$1"
+    shift || true
+
+    case "$cmd" in
+        new|create)
+            cmd_new "$@"
+            ;;
+        list|ls)
+            cmd_list
+            ;;
+        rm|delete|remove)
+            cmd_rm "$@"
+            ;;
+        link)
+            cmd_link "$@"
+            ;;
+        run|exec)
+            cmd_run "$@"
+            ;;
+        help|-h|--help)
+            usage
+            ;;
+        *)
+            # Se il comando corrisponde a un profilo esistente, eseguilo direttamente
+            if [ -d "$PROFILES_DIR/$cmd" ]; then
+                cmd_run "$cmd" "$@"
+            else
+                log_error "Comando o profilo sconosciuto: '$cmd'"
+                echo ""
+                usage
+                exit 1
+            fi
+            ;;
+    esac
+}
+
+main "$@"
