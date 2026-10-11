@@ -21,6 +21,7 @@ REAL_HOME="$(get_real_home)"
 XDG_DATA_HOME="${XDG_DATA_HOME:-$REAL_HOME/.local/share}"
 MULTIAGY_DIR="$XDG_DATA_HOME/multiagy"
 PROFILES_DIR="$MULTIAGY_DIR/profiles"
+SHARED_DIR="$MULTIAGY_DIR/shared"
 
 # Colori per output
 RED='\033[0;31m'
@@ -43,15 +44,18 @@ ${BOLD}UTILIZZO:${NC}
   multiagy <nome_profilo> [opzioni agy...]
 
 ${BOLD}COMANDI:${NC}
-  ${GREEN}new${NC} <profilo>        Crea un nuovo profilo con keychain vuoto e config isolate
-  ${GREEN}run${NC} <profilo> [args] Esegue agy con il profilo specificato
-  ${GREEN}list${NC}, ${GREEN}ls${NC}            Elenca tutti i profili esistenti
-  ${GREEN}rm${NC} <profilo> [-f]    Rimuove un profilo esistente (-f per saltare la conferma)
-  ${GREEN}link${NC} <profilo>       Crea un comando rapido in ~/.local/bin/agy-<profilo>
-  ${GREEN}help${NC}, ${GREEN}-h${NC}          Mostra questo messaggio di aiuto
+  ${GREEN}new${NC} <profilo> [--shared] Crea un nuovo profilo (opzionale: --shared per sessioni condivise)
+  ${GREEN}share${NC} <profilo>          Collega le sessioni di un profilo alla cartella condivisa
+  ${GREEN}run${NC} <profilo> [args]    Esegue agy con il profilo specificato
+  ${GREEN}list${NC}, ${GREEN}ls${NC}               Elenca tutti i profili esistenti
+  ${GREEN}rm${NC} <profilo> [-f]       Rimuove un profilo esistente (-f per saltare la conferma)
+  ${GREEN}link${NC} <profilo>          Crea un comando rapido in ~/.local/bin/agy-<profilo>
+  ${GREEN}help${NC}, ${GREEN}-h${NC}             Mostra questo messaggio di aiuto
 
 ${BOLD}ESEMPI:${NC}
-  multiagy new work              # Crea il profilo 'work'
+  multiagy new work              # Crea il profilo 'work' isolato
+  multiagy new personal --shared # Crea il profilo 'personal' con sessioni condivise
+  multiagy share work            # Trasforma 'work' in profilo con sessioni condivise
   multiagy run work              # Avvia agy con il profilo 'work'
   multiagy work -c               # Scorciatoia diretta per eseguire agy col profilo 'work'
   multiagy link work             # Ora puoi digitare direttamente 'agy-work' da ovunque
@@ -62,7 +66,9 @@ ${BOLD}STRUTTURA XDG:${NC}
   I profili sono salvati in:
   $PROFILES_DIR/<profilo>/
     ├── home/           (Home virtuale con keychain dedicato e symlink ssh/git)
-    └── gemini/         (Directory dati e configurazione passata a --gemini_dir)"
+    └── gemini/         (Directory dati e configurazione passata a --gemini_dir)
+  Directory sessioni condivise:
+  $SHARED_DIR/          (conversations, brain, conversation_summaries.db)"
 }
 
 setup_profile_environment() {
@@ -88,10 +94,124 @@ setup_profile_environment() {
     fi
 }
 
+setup_shared_environment() {
+    mkdir -p "$SHARED_DIR/conversations" "$SHARED_DIR/brain" "$SHARED_DIR/annotations" "$SHARED_DIR/implicit"
+    if [ ! -f "$SHARED_DIR/history.jsonl" ]; then
+        touch "$SHARED_DIR/history.jsonl"
+    fi
+}
+
+link_profile_to_shared() {
+    local profile="$1"
+    local profile_dir="$PROFILES_DIR/$profile"
+    local cli_dir="$profile_dir/gemini/antigravity-cli"
+
+    setup_shared_environment
+    mkdir -p "$cli_dir"
+
+    # Sposta eventuali conversazioni locali esistenti in shared/ se non presenti
+    local conv_dir="$cli_dir/conversations"
+    if [ -d "$conv_dir" ] && [ ! -L "$conv_dir" ]; then
+        for f in "$conv_dir"/*; do
+            if [ -e "$f" ]; then
+                local bname
+                bname="$(basename "$f")"
+                if [ ! -e "$SHARED_DIR/conversations/$bname" ]; then
+                    cp -p "$f" "$SHARED_DIR/conversations/"
+                fi
+            fi
+        done
+        rm -rf "$conv_dir"
+    fi
+
+    # Sposta cartella brain locale
+    local brain_dir="$cli_dir/brain"
+    if [ -d "$brain_dir" ] && [ ! -L "$brain_dir" ]; then
+        for b in "$brain_dir"/*; do
+            if [ -e "$b" ]; then
+                local bname
+                bname="$(basename "$b")"
+                if [ ! -e "$SHARED_DIR/brain/$bname" ]; then
+                    cp -Rp "$b" "$SHARED_DIR/brain/"
+                fi
+            fi
+        done
+        rm -rf "$brain_dir"
+    fi
+
+    # Sposta annotations locale
+    local ann_dir="$cli_dir/annotations"
+    if [ -d "$ann_dir" ] && [ ! -L "$ann_dir" ]; then
+        for a in "$ann_dir"/*; do
+            if [ -e "$a" ]; then
+                local aname
+                aname="$(basename "$a")"
+                if [ ! -e "$SHARED_DIR/annotations/$aname" ]; then
+                    cp -p "$a" "$SHARED_DIR/annotations/"
+                fi
+            fi
+        done
+        rm -rf "$ann_dir"
+    fi
+
+    # Sposta implicit locale
+    local imp_dir="$cli_dir/implicit"
+    if [ -d "$imp_dir" ] && [ ! -L "$imp_dir" ]; then
+        for im in "$imp_dir"/*; do
+            if [ -e "$im" ]; then
+                local iname
+                iname="$(basename "$im")"
+                if [ ! -e "$SHARED_DIR/implicit/$iname" ]; then
+                    cp -p "$im" "$SHARED_DIR/implicit/"
+                fi
+            fi
+        done
+        rm -rf "$imp_dir"
+    fi
+
+    # Unisci conversation_summaries.db locale se presente
+    local local_db="$cli_dir/conversation_summaries.db"
+    if [ -f "$local_db" ] && [ ! -L "$local_db" ]; then
+        if [ -f "$SHARED_DIR/conversation_summaries.db" ]; then
+            if command -v sqlite3 >/dev/null 2>&1; then
+                sqlite3 "$SHARED_DIR/conversation_summaries.db" "ATTACH '$local_db' AS local_db; INSERT OR REPLACE INTO conversation_summaries SELECT * FROM local_db.conversation_summaries; DETACH local_db;" 2>/dev/null || true
+            fi
+        else
+            cp -p "$local_db" "$SHARED_DIR/conversation_summaries.db"
+        fi
+        rm -f "$cli_dir"/conversation_summaries.db*
+    fi
+
+    # Crea i collegamenti simbolici verso shared/
+    ln -sfn "$SHARED_DIR/conversations" "$cli_dir/conversations"
+    ln -sfn "$SHARED_DIR/brain" "$cli_dir/brain"
+    ln -sfn "$SHARED_DIR/annotations" "$cli_dir/annotations"
+    ln -sfn "$SHARED_DIR/implicit" "$cli_dir/implicit"
+    ln -sf "$SHARED_DIR/history.jsonl" "$cli_dir/history.jsonl"
+
+    if [ -f "$SHARED_DIR/conversation_summaries.db" ]; then
+        ln -sf "$SHARED_DIR/conversation_summaries.db" "$cli_dir/conversation_summaries.db"
+    fi
+}
+
 cmd_new() {
-    local profile="${1:-}"
+    local profile=""
+    local shared=false
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --shared|-s|--share-sessions) shared=true ;;
+            *)
+                if [ -z "$profile" ]; then
+                    profile="$1"
+                fi
+                ;;
+        esac
+        shift
+    done
+
     if [ -z "$profile" ]; then
-        log_error "Devi specificare un nome per il profilo. Es: multiagy new lavoro"
+        log_error "Devi specificare un nome per il profilo. Es: multiagy new lavoro [--shared]"
         exit 1
     fi
 
@@ -99,16 +219,47 @@ cmd_new() {
     if [ -d "$profile_dir" ]; then
         log_warn "Il profilo '$profile' esiste già in: $profile_dir"
         setup_profile_environment "$profile"
+        if [ "$shared" = true ]; then
+            link_profile_to_shared "$profile"
+            log_success "Sessioni condivise abilitate per '$profile'."
+        fi
         return 0
     fi
 
     log_info "Creazione del profilo '$profile' in $profile_dir..."
     setup_profile_environment "$profile"
+    if [ "$shared" = true ]; then
+        link_profile_to_shared "$profile"
+    fi
+
     log_success "Profilo '$profile' creato con successo!"
     echo -e "  - Home virtuale: ${profile_dir}/home"
     echo -e "  - Gemini dir:    ${profile_dir}/gemini"
     echo -e "  - Keychain:      ${profile_dir}/home/Library/Keychains/login.keychain-db"
+    if [ "$shared" = true ]; then
+        echo -e "  - Sessioni:      Condivise (${SHARED_DIR})"
+    else
+        echo -e "  - Sessioni:      Isolate"
+    fi
     echo -e "\nPer avviarlo: ${BOLD}multiagy run $profile${NC} oppure ${BOLD}multiagy $profile${NC}"
+}
+
+cmd_share() {
+    local profile="${1:-}"
+    if [ -z "$profile" ]; then
+        log_error "Devi specificare quale profilo collegare alle sessioni condivise. Es: multiagy share lavoro"
+        exit 1
+    fi
+
+    local profile_dir="$PROFILES_DIR/$profile"
+    if [ ! -d "$profile_dir" ]; then
+        log_error "Il profilo '$profile' non esiste in $PROFILES_DIR"
+        exit 1
+    fi
+
+    setup_profile_environment "$profile"
+    link_profile_to_shared "$profile"
+    log_success "Il profilo '$profile' ora utilizza le sessioni condivise in $SHARED_DIR!"
 }
 
 cmd_list() {
@@ -127,8 +278,12 @@ cmd_list() {
             size="$(du -sh "$d" 2>/dev/null | cut -f1)"
             local has_token="No"
             [ -f "$d/gemini/antigravity-cli/antigravity-oauth-token" ] && has_token="Sì (autenticato)"
+            local sessions="Isolate"
+            if [ -L "$d/gemini/antigravity-cli/conversations" ]; then
+                sessions="Condivise"
+            fi
 
-            printf "  • %-16s [Dimensione: %-6s | Login: %s]\n" "$name" "$size" "$has_token"
+            printf "  • %-16s [Dimensione: %-6s | Login: %-16s | Sessioni: %s]\n" "$name" "$size" "$has_token" "$sessions"
         fi
     done
 }
@@ -235,6 +390,9 @@ main() {
     case "$cmd" in
         new|create)
             cmd_new "$@"
+            ;;
+        share)
+            cmd_share "$@"
             ;;
         list|ls)
             cmd_list

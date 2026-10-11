@@ -9,6 +9,7 @@ Permette di gestire account Google/Antigravity multipli sullo stesso sistema mac
 ## ✨ Funzionalità
 
 * **Isolamento completo dei profili**: Ciascun profilo dispone di una propria home virtuale e della propria directory dati `--gemini_dir`.
+* **Sessioni condivise opzionali (`--shared`)**: Possibilità di condividere lo storico delle sessioni, delle chat e dei riassunti (`conversations`, `brain`, `conversation_summaries.db`) tra più profili tramite symlink a una directory comune (`~/.local/share/multiagy/shared/`), mantenendo al contempo rigorosamente separata l'autenticazione.
 * **Keychain macOS dedicato**: Crea automaticamente un portachiavi locale vuoto con password vuota per ciascun profilo (`login.keychain-db`), eliminando definitivamente gli avvisi e i popup di sistema.
 * **Standard XDG compliant**: Tutti i dati sono memorizzati in `$XDG_DATA_HOME/multiagy/profiles/` (default: `~/.local/share/multiagy/profiles/`).
 * **Integrazione Git e SSH**: Condivide in automatico le chiavi SSH e le configurazioni Git della macchina host tramite collegamenti simbolici.
@@ -18,19 +19,25 @@ Permette di gestire account Google/Antigravity multipli sullo stesso sistema mac
 
 ## 📂 Struttura delle Directory (XDG)
 
-Ogni profilo viene strutturato come segue:
+I profili e i dati condivisi sono strutturati come segue:
 
 ```text
-~/.local/share/multiagy/profiles/<profilo>/
-├── home/
-│   ├── .gitconfig                         (symlink a ~/.gitconfig)
-│   ├── .ssh                               (symlink a ~/.ssh)
-│   └── Library/
-│       └── Keychains/
-│           └── login.keychain-db          (portachiavi macOS isolato)
-└── gemini/                                (passato come --gemini_dir)
-    ├── antigravity-cli/                   (token, sessioni, cronologia)
-    └── config/                            (skills, impostazioni, progetti)
+~/.local/share/multiagy/
+├── shared/                                (cartella dati condivisi, se usata)
+│   ├── conversations/                     (database .db delle conversazioni)
+│   ├── brain/                             (artefatti, log e task)
+│   ├── conversation_summaries.db          (indice SQLite delle sessioni)
+│   └── history.jsonl                      (cronologia dei prompt)
+└── profiles/<profilo>/
+    ├── home/
+    │   ├── .gitconfig                     (symlink a ~/.gitconfig)
+    │   ├── .ssh                           (symlink a ~/.ssh)
+    │   └── Library/
+    │       └── Keychains/
+    │           └── login.keychain-db      (portachiavi macOS isolato con token OAuth)
+    └── gemini/                            (passato come --gemini_dir)
+        ├── antigravity-cli/               (config, oppure symlink a shared/)
+        └── config/                        (skills, impostazioni, progetti)
 ```
 
 ---
@@ -53,11 +60,21 @@ Lo script di installazione creerà un symlink a `multiagy` in `~/.local/bin/mult
 
 ### 1. Creare un nuovo profilo
 ```sh
+# Profilo con sessioni isolate al 100% (default)
 multiagy new lavoro
-```
-Crea la struttura directory, il portachiavi dedicato e i collegamenti per Git e SSH.
 
-### 2. Avviare Antigravity con un profilo
+# Profilo con sessioni condivise (chat e storico in comune con altri profili condivisi)
+multiagy new personale --shared
+```
+Crea la struttura directory, il portachiavi dedicato e i collegamenti per Git e SSH. Con `--shared` (o `-s`), collega le chat a `~/.local/share/multiagy/shared/`.
+
+### 2. Condividere le sessioni di un profilo esistente
+```sh
+multiagy share lavoro
+```
+Collega lo storico e le conversazioni del profilo alla cartella condivisa comune.
+
+### 3. Avviare Antigravity con un profilo
 Puoi avviarlo in due modi:
 ```sh
 # Sintassi esplicita
@@ -73,7 +90,7 @@ multiagy lavoro --prompt "Spiegami questo codice"
 
 Al primo avvio del profilo, `agy` ti guiderà nella schermata di login per associare quell'account specifico.
 
-### 3. Creare un comando rapido nel sistema
+### 4. Creare un comando rapido nel sistema
 Puoi creare un eseguibile dedicato nel tuo `~/.local/bin/` (es. `agy-lavoro`):
 ```sh
 multiagy link lavoro
@@ -83,7 +100,7 @@ Dopodiché potrai lanciarlo ovunque semplicemente digitando:
 agy-lavoro
 ```
 
-### 4. Elencare i profili esistenti
+### 5. Elencare i profili esistenti
 ```sh
 multiagy list
 # oppure:
@@ -93,11 +110,11 @@ multiagy ls
 Output:
 ```text
 Profili disponibili in ~/.local/share/multiagy/profiles:
-  • lavoro           [Dimensione: 4.2M   | Login: Sì (autenticato)]
-  • personale        [Dimensione: 1.1M   | Login: Sì (autenticato)]
+  • lavoro           [Dimensione: 4.2M   | Login: Sì (autenticato) | Sessioni: Condivise]
+  • personale        [Dimensione: 1.1M   | Login: Sì (autenticato) | Sessioni: Isolate]
 ```
 
-### 5. Rimuovere un profilo
+### 6. Rimuovere un profilo
 ```sh
 multiagy rm lavoro
 
