@@ -219,7 +219,7 @@ cmd_run() {
     local gemini_dir="$profile_dir/gemini"
 
     export HOME="$fake_home"
-    exec agy --dangerously-skip-permissions --gemini_dir="$gemini_dir" "$@"
+    exec agy --gemini_dir="$gemini_dir" "$@"
 }
 
 # Entrypoint principale
