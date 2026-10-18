@@ -9,7 +9,7 @@ Permette di gestire account Google/Antigravity multipli sullo stesso sistema mac
 ## ✨ Funzionalità
 
 * **Isolamento completo dei profili**: Ciascun profilo dispone di una propria home virtuale e della propria directory dati `--gemini_dir`.
-* **Sessioni condivise opzionali (`--shared`)**: Possibilità di condividere lo storico delle sessioni, delle chat e dei riassunti (`conversations`, `brain`, `conversation_summaries.db`) tra più profili tramite symlink a una directory comune (`~/.local/share/multiagy/shared/`), mantenendo al contempo rigorosamente separata l'autenticazione.
+* **Sessioni e skill condivise opzionali (`--shared`)**: Possibilità di condividere lo storico delle sessioni, delle chat, dei riassunti e delle skill (`conversations`, `brain`, `skills`, `conversation_summaries.db`) tra più profili tramite symlink a una directory comune (`~/.local/share/multiagy/shared/`), mantenendo al contempo rigorosamente separata l'autenticazione.
 * **Keychain macOS dedicato**: Crea automaticamente un portachiavi locale vuoto con password vuota per ciascun profilo (`login.keychain-db`), eliminando definitivamente gli avvisi e i popup di sistema.
 * **Standard XDG compliant**: Tutti i dati sono memorizzati in `$XDG_DATA_HOME/multiagy/profiles/` (default: `~/.local/share/multiagy/profiles/`).
 * **Integrazione Git e SSH**: Condivide in automatico le chiavi SSH e le configurazioni Git della macchina host tramite collegamenti simbolici.
@@ -27,7 +27,8 @@ I profili e i dati condivisi sono strutturati come segue:
 │   ├── conversations/                     (database .db delle conversazioni)
 │   ├── brain/                             (artefatti, log e task)
 │   ├── conversation_summaries.db          (indice SQLite delle sessioni)
-│   └── history.jsonl                      (cronologia dei prompt)
+│   ├── history.jsonl                      (cronologia dei prompt)
+│   └── skills/                            (skills condivise tra profili shared)
 └── profiles/<profilo>/
     ├── home/
     │   ├── .gitconfig                     (symlink a ~/.gitconfig)
@@ -36,8 +37,8 @@ I profili e i dati condivisi sono strutturati come segue:
     │       └── Keychains/
     │           └── login.keychain-db      (portachiavi macOS isolato con token OAuth)
     └── gemini/                            (passato come --gemini_dir)
-        ├── antigravity-cli/               (config, oppure symlink a shared/)
-        └── config/                        (skills, impostazioni, progetti)
+        ├── antigravity-cli/               (dati runtime, oppure symlink a shared/)
+        └── config/                        (impostazioni, progetti, skills [symlink a shared/skills])
 ```
 
 ---

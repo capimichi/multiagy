@@ -68,7 +68,7 @@ ${BOLD}STRUTTURA XDG:${NC}
     ├── home/           (Home virtuale con keychain dedicato e symlink ssh/git)
     └── gemini/         (Directory dati e configurazione passata a --gemini_dir)
   Directory sessioni condivise:
-  $SHARED_DIR/          (conversations, brain, conversation_summaries.db)"
+  $SHARED_DIR/          (conversations, brain, skills, conversation_summaries.db)"
 }
 
 setup_profile_environment() {
@@ -95,7 +95,7 @@ setup_profile_environment() {
 }
 
 setup_shared_environment() {
-    mkdir -p "$SHARED_DIR/conversations" "$SHARED_DIR/brain" "$SHARED_DIR/annotations" "$SHARED_DIR/implicit"
+    mkdir -p "$SHARED_DIR/conversations" "$SHARED_DIR/brain" "$SHARED_DIR/annotations" "$SHARED_DIR/implicit" "$SHARED_DIR/skills"
     if [ ! -f "$SHARED_DIR/history.jsonl" ]; then
         touch "$SHARED_DIR/history.jsonl"
     fi
@@ -182,6 +182,22 @@ link_profile_to_shared() {
         rm -f "$cli_dir"/conversation_summaries.db*
     fi
 
+    # Sposta skills locale se presente
+    local profile_config_dir="$profile_dir/gemini/config"
+    local skills_dir="$profile_config_dir/skills"
+    if [ -d "$skills_dir" ] && [ ! -L "$skills_dir" ]; then
+        for s in "$skills_dir"/*; do
+            if [ -e "$s" ]; then
+                local sname
+                sname="$(basename "$s")"
+                if [ ! -e "$SHARED_DIR/skills/$sname" ]; then
+                    cp -Rp "$s" "$SHARED_DIR/skills/"
+                fi
+            fi
+        done
+        rm -rf "$skills_dir"
+    fi
+
     # Crea i collegamenti simbolici verso shared/
     ln -sfn "$SHARED_DIR/conversations" "$cli_dir/conversations"
     ln -sfn "$SHARED_DIR/brain" "$cli_dir/brain"
@@ -192,6 +208,9 @@ link_profile_to_shared() {
     if [ -f "$SHARED_DIR/conversation_summaries.db" ]; then
         ln -sf "$SHARED_DIR/conversation_summaries.db" "$cli_dir/conversation_summaries.db"
     fi
+
+    mkdir -p "$profile_config_dir"
+    ln -sfn "$SHARED_DIR/skills" "$skills_dir"
 }
 
 cmd_new() {
