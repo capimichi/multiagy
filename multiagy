@@ -86,10 +86,16 @@ setup_profile_environment() {
     [ -f "$REAL_HOME/.gitconfig" ] && [ ! -e "$fake_home/.gitconfig" ] && ln -sf "$REAL_HOME/.gitconfig" "$fake_home/.gitconfig"
     [ -d "$REAL_HOME/.ssh" ] && [ ! -e "$fake_home/.ssh" ] && ln -sf "$REAL_HOME/.ssh" "$fake_home/.ssh"
 
-    # Crea il portachiavi macOS dedicato con password vuota se mancante
-    if [ ! -f "$keychain_file" ]; then
-        if command -v security >/dev/null 2>&1; then
+    # Crea e configura il portachiavi macOS dedicato con password vuota se mancante
+    if command -v security >/dev/null 2>&1; then
+        if [ ! -f "$keychain_file" ]; then
             security create-keychain -p "" "$keychain_file" 2>/dev/null || true
+        fi
+        if [ -f "$keychain_file" ]; then
+            # Disabilita blocco allo stop e timeout di inattività (evita popup continui)
+            security set-keychain-settings "$keychain_file" 2>/dev/null || true
+            # Sblocca il portachiavi con password vuota
+            security unlock-keychain -p "" "$keychain_file" 2>/dev/null || true
         fi
     fi
 }
@@ -391,6 +397,12 @@ cmd_run() {
 
     local fake_home="$profile_dir/home"
     local gemini_dir="$profile_dir/gemini"
+    local keychain_file="$fake_home/Library/Keychains/login.keychain-db"
+
+    # Assicura che il portachiavi sia sbloccato prima di eseguire agy
+    if command -v security >/dev/null 2>&1 && [ -f "$keychain_file" ]; then
+        security unlock-keychain -p "" "$keychain_file" 2>/dev/null || true
+    fi
 
     export HOME="$fake_home"
     exec agy --gemini_dir="$gemini_dir" "$@"
