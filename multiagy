@@ -18,8 +18,8 @@ get_real_home() {
 }
 
 REAL_HOME="$(get_real_home)"
-XDG_DATA_HOME="${XDG_DATA_HOME:-$REAL_HOME/.local/share}"
-MULTIAGY_DIR="$XDG_DATA_HOME/multiagy"
+# multiagy risiede sempre nella vera home utente per evitare annidamenti
+MULTIAGY_DIR="$REAL_HOME/.local/share/multiagy"
 PROFILES_DIR="$MULTIAGY_DIR/profiles"
 SHARED_DIR="$MULTIAGY_DIR/shared"
 
@@ -47,6 +47,7 @@ ${BOLD}COMANDI:${NC}
   ${GREEN}new${NC} <profilo> [--shared] Crea un nuovo profilo (opzionale: --shared per sessioni condivise)
   ${GREEN}share${NC} <profilo>          Collega le sessioni di un profilo alla cartella condivisa
   ${GREEN}run${NC} <profilo> [args]    Esegue agy con il profilo specificato
+  ${GREEN}sync${NC} [profilo]          Sincronizza la Shadow Home (symlink da REAL_HOME e pulizia orfani)
   ${GREEN}list${NC}, ${GREEN}ls${NC}               Elenca tutti i profili esistenti
   ${GREEN}rm${NC} <profilo> [-f]       Rimuove un profilo esistente (-f per saltare la conferma)
   ${GREEN}link${NC} <profilo>          Crea un comando rapido in ~/.local/bin/agy-<profilo>
@@ -71,6 +72,70 @@ ${BOLD}STRUTTURA XDG:${NC}
   $SHARED_DIR/          (conversations, brain, skills, conversation_summaries.db)"
 }
 
+sync_shadow_home() {
+    local fake_home="$1"
+    local gemini_dir="$2"
+
+    # 1. Pruning: rimuovi i symlink orfani (destinazione originale rimossa o spostata)
+    for link in "$fake_home"/.[!.]* "$fake_home"/*; do
+        if [ -L "$link" ] && [ ! -e "$link" ]; then
+            rm -f "$link"
+        fi
+    done
+
+    if [ -d "$fake_home/Library" ]; then
+        for link in "$fake_home/Library"/*; do
+            if [ -L "$link" ] && [ ! -e "$link" ]; then
+                rm -f "$link"
+            fi
+        done
+    fi
+
+    # 2. Sync della HOME: specchia tutti i file e directory da REAL_HOME a fake_home
+    for entry in "$REAL_HOME"/.[!.]* "$REAL_HOME"/*; do
+        [ -e "$entry" ] || continue
+        local bname
+        bname="$(basename "$entry")"
+
+        case "$bname" in
+            Library|.gemini|.Trash|.DS_Store)
+                # Gestite ad-hoc o ignorate
+                ;;
+            *)
+                if [ ! -e "$fake_home/$bname" ] && [ ! -L "$fake_home/$bname" ]; then
+                    ln -s "$entry" "$fake_home/$bname"
+                fi
+                ;;
+        esac
+    done
+
+    # 3. .gemini punta alla directory del profilo
+    if [ ! -e "$fake_home/.gemini" ] && [ ! -L "$fake_home/.gemini" ]; then
+        ln -sfn "$gemini_dir" "$fake_home/.gemini"
+    fi
+
+    # 4. Sync di Library: specchia tutte le cartelle e file da REAL_HOME/Library tranne Keychains
+    mkdir -p "$fake_home/Library"
+    if [ -d "$REAL_HOME/Library" ]; then
+        for lib_item in "$REAL_HOME/Library"/*; do
+            [ -e "$lib_item" ] || continue
+            local lname
+            lname="$(basename "$lib_item")"
+
+            case "$lname" in
+                Keychains)
+                    # Non toccare: Keychains rimane isolata per il portachiavi del profilo
+                    ;;
+                *)
+                    if [ ! -e "$fake_home/Library/$lname" ] && [ ! -L "$fake_home/Library/$lname" ]; then
+                        ln -s "$lib_item" "$fake_home/Library/$lname"
+                    fi
+                    ;;
+            esac
+        done
+    fi
+}
+
 setup_profile_environment() {
     local profile="$1"
     local profile_dir="$PROFILES_DIR/$profile"
@@ -82,9 +147,20 @@ setup_profile_environment() {
     # Crea le directory se non esistono
     mkdir -p "$fake_home" "$gemini_dir" "$keychain_dir"
 
-    # Collega gitconfig e ssh se presenti nella home reale
-    [ -f "$REAL_HOME/.gitconfig" ] && [ ! -e "$fake_home/.gitconfig" ] && ln -sf "$REAL_HOME/.gitconfig" "$fake_home/.gitconfig"
-    [ -d "$REAL_HOME/.ssh" ] && [ ! -e "$fake_home/.ssh" ] && ln -sf "$REAL_HOME/.ssh" "$fake_home/.ssh"
+    # Sincronizza lo Shadow Home (mirroring della vera HOME con pulizia orfani)
+    sync_shadow_home "$fake_home" "$gemini_dir"
+
+    # Regola GEMINI.md automatica nel profilo (se non presente)
+    local profile_config_dir="$gemini_dir/config"
+    mkdir -p "$profile_config_dir"
+    if [ ! -f "$profile_config_dir/GEMINI.md" ]; then
+        cat <<EOF > "$profile_config_dir/GEMINI.md"
+# Multiagy Profile Instructions
+- Profilo attivo: $profile
+- La vera home directory dell'utente su disco è: $REAL_HOME
+- Risolvi e tratta sempre i percorsi relativi alla home utente (o configurazioni personali) facendo riferimento a $REAL_HOME.
+EOF
+    fi
 
     # Crea e configura il portachiavi macOS dedicato con password vuota se mancante
     if command -v security >/dev/null 2>&1; then
@@ -379,6 +455,30 @@ EOF
     echo -e "Ora puoi digitare direttamente: ${BOLD}agy-$profile [argomenti]${NC}"
 }
 
+cmd_sync() {
+    local profile="${1:-}"
+    if [ -n "$profile" ]; then
+        local profile_dir="$PROFILES_DIR/$profile"
+        if [ ! -d "$profile_dir" ]; then
+            log_error "Il profilo '$profile' non esiste in $PROFILES_DIR"
+            exit 1
+        fi
+        log_info "Sincronizzazione Shadow Home per '$profile'..."
+        setup_profile_environment "$profile"
+        log_success "Sincronizzazione completata per '$profile'!"
+    else
+        log_info "Sincronizzazione Shadow Home per tutti i profili..."
+        for d in "$PROFILES_DIR"/*; do
+            if [ -d "$d" ]; then
+                local p
+                p="$(basename "$d")"
+                setup_profile_environment "$p"
+                log_success "Profilo '$p' sincronizzato."
+            fi
+        done
+    fi
+}
+
 cmd_run() {
     local profile="${1:-}"
     if [ -z "$profile" ]; then
@@ -436,6 +536,9 @@ main() {
             ;;
         run|exec)
             cmd_run "$@"
+            ;;
+        sync)
+            cmd_sync "$@"
             ;;
         help|-h|--help)
             usage

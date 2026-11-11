@@ -9,6 +9,8 @@ Permette di gestire account Google/Antigravity multipli sullo stesso sistema mac
 ## ✨ Funzionalità
 
 * **Isolamento completo dei profili**: Ciascun profilo dispone di una propria home virtuale e della propria directory dati `--gemini_dir`.
+* **Shadow Home & Mirroring agnostico**: Specchia automaticamente tutti i file, dotfiles (`.zshrc`, `.bashrc`, `.config`, ecc.) e cartelle personali dalla vera HOME alla home virtuale, con pulizia automatica dei symlink orfani ad ogni avvio.
+* **Isolamento mirato di macOS Library**: Tutte le cartelle dentro `~/Library` vengono specchiate normalmente verso la home virtuale, ad eccezione unicamente di `Library/Keychains`, che rimane isolata per il portachiavi OAuth dedicato del profilo.
 * **Sessioni e skill condivise opzionali (`--shared`)**: Possibilità di condividere lo storico delle sessioni, delle chat, dei riassunti e delle skill (`conversations`, `brain`, `skills`, `conversation_summaries.db`) tra più profili tramite symlink a una directory comune (`~/.local/share/multiagy/shared/`), mantenendo al contempo rigorosamente separata l'autenticazione.
 * **Keychain macOS dedicato**: Crea automaticamente un portachiavi locale vuoto con password vuota per ciascun profilo (`login.keychain-db`), eliminando definitivamente gli avvisi e i popup di sistema.
 * **Standard XDG compliant**: Tutti i dati sono memorizzati in `$XDG_DATA_HOME/multiagy/profiles/` (default: `~/.local/share/multiagy/profiles/`).
@@ -101,7 +103,17 @@ Dopodiché potrai lanciarlo ovunque semplicemente digitando:
 agy-lavoro
 ```
 
-### 5. Elencare i profili esistenti
+### 5. Sincronizzare la Shadow Home
+La sincronizzazione avviene automaticamente a ogni `multiagy run`, ma puoi forzarla manualmente:
+```sh
+# Sincronizza un singolo profilo
+multiagy sync lavoro
+
+# Sincronizza tutti i profili
+multiagy sync
+```
+
+### 6. Elencare i profili esistenti
 ```sh
 multiagy list
 # oppure:
@@ -115,7 +127,7 @@ Profili disponibili in ~/.local/share/multiagy/profiles:
   • personale        [Dimensione: 1.1M   | Login: Sì (autenticato) | Sessioni: Isolate]
 ```
 
-### 6. Rimuovere un profilo
+### 7. Rimuovere un profilo
 ```sh
 multiagy rm lavoro
 
