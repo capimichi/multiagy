@@ -30,7 +30,8 @@ I profili e i dati condivisi sono strutturati come segue:
 │   ├── brain/                             (artefatti, log e task)
 │   ├── conversation_summaries.db          (indice SQLite delle sessioni)
 │   ├── history.jsonl                      (cronologia dei prompt)
-│   └── skills/                            (skills condivise tra profili shared)
+│   ├── skills/                            (skills condivise tra profili shared)
+│   └── GEMINI.md                          (regole globali condivise per i profili shared)
 └── profiles/<profilo>/
     ├── home/
     │   ├── .gitconfig                     (symlink a ~/.gitconfig)
@@ -40,7 +41,7 @@ I profili e i dati condivisi sono strutturati come segue:
     │           └── login.keychain-db      (portachiavi macOS isolato con token OAuth)
     └── gemini/                            (passato come --gemini_dir)
         ├── antigravity-cli/               (dati runtime, oppure symlink a shared/)
-        └── config/                        (impostazioni, progetti, skills [symlink a shared/skills])
+        └── config/                        (impostazioni, progetti, skills e GEMINI.md [symlink a shared/])
 ```
 
 ---

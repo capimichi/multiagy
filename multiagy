@@ -69,7 +69,7 @@ ${BOLD}STRUTTURA XDG:${NC}
     ├── home/           (Home virtuale con keychain dedicato e symlink ssh/git)
     └── gemini/         (Directory dati e configurazione passata a --gemini_dir)
   Directory sessioni condivise:
-  $SHARED_DIR/          (conversations, brain, skills, conversation_summaries.db)"
+  $SHARED_DIR/          (conversations, brain, skills, GEMINI.md, conversation_summaries.db)"
 }
 
 sync_shadow_home() {
@@ -150,15 +150,33 @@ setup_profile_environment() {
     # Sincronizza lo Shadow Home (mirroring della vera HOME con pulizia orfani)
     sync_shadow_home "$fake_home" "$gemini_dir"
 
-    # Regola GEMINI.md automatica nel profilo (se non presente)
+    # Regola GEMINI.md automatica nel profilo (se non presente o se in modalità shared)
     local profile_config_dir="$gemini_dir/config"
+    local cli_dir="$profile_dir/gemini/antigravity-cli"
     mkdir -p "$profile_config_dir"
-    if [ ! -f "$profile_config_dir/GEMINI.md" ]; then
+
+    # Se il profilo è in modalità shared, collega GEMINI.md a quello centralizzato in shared/
+    if [ -L "$cli_dir/conversations" ] || [ -L "$profile_config_dir/skills" ]; then
+        setup_shared_environment
+        ln -sf "$SHARED_DIR/GEMINI.md" "$profile_config_dir/GEMINI.md"
+    elif [ ! -f "$profile_config_dir/GEMINI.md" ]; then
         cat <<EOF > "$profile_config_dir/GEMINI.md"
 # Multiagy Profile Instructions
 - Profilo attivo: $profile
 - La vera home directory dell'utente su disco è: $REAL_HOME
 - Risolvi e tratta sempre i percorsi relativi alla home utente (o configurazioni personali) facendo riferimento a $REAL_HOME.
+
+# Skill & Automazioni Personali (\$SKILL_PROJECT_PATH)
+- La directory delle skill personali è definita dalla variabile d'ambiente \$SKILL_PROJECT_PATH (default: $REAL_HOME/workspace/capimichi-skills).
+- Per qualsiasi task operativo riguardante:
+  * Task, to-do list, promemoria o progetti ➔ TickTick (skill prioritaria)
+  * Documenti, fatture, scontrini o OCR ➔ Paperless
+  * Campagne affiliate, report conversioni o pixel ➔ Worldfilia
+  * Media, film, serie TV viste o cronologia ➔ Nuvio / Trakt / Stremio
+  * Amazon, acquisti o ordini ➔ Amazon
+  * Musica, tracce o download ➔ SoulSync / Spotify / Lucida / Amazon Music
+- Consulta SEMPRE preventivamente l'indice e i relativi trigger operativi in:
+  \$SKILL_PROJECT_PATH/README.md
 EOF
     fi
 
@@ -180,6 +198,26 @@ setup_shared_environment() {
     mkdir -p "$SHARED_DIR/conversations" "$SHARED_DIR/brain" "$SHARED_DIR/annotations" "$SHARED_DIR/implicit" "$SHARED_DIR/skills"
     if [ ! -f "$SHARED_DIR/history.jsonl" ]; then
         touch "$SHARED_DIR/history.jsonl"
+    fi
+    if [ ! -f "$SHARED_DIR/GEMINI.md" ]; then
+        cat <<EOF > "$SHARED_DIR/GEMINI.md"
+# Multiagy Shared Instructions
+- Ambiente: multi-profilo Antigravity CLI (multiagy).
+- La vera home directory dell'utente su disco è: $REAL_HOME
+- Risolvi e tratta sempre i percorsi relativi alla home utente (o configurazioni personali) facendo riferimento a $REAL_HOME.
+
+# Skill & Automazioni Personali (\$SKILL_PROJECT_PATH)
+- La directory delle skill personali è definita dalla variabile d'ambiente \$SKILL_PROJECT_PATH (default: $REAL_HOME/workspace/capimichi-skills).
+- Per qualsiasi task operativo riguardante:
+  * Task, to-do list, promemoria o progetti ➔ TickTick (skill prioritaria)
+  * Documenti, fatture, scontrini o OCR ➔ Paperless
+  * Campagne affiliate, report conversioni o pixel ➔ Worldfilia
+  * Media, film, serie TV viste o cronologia ➔ Nuvio / Trakt / Stremio
+  * Amazon, acquisti o ordini ➔ Amazon
+  * Musica, tracce o download ➔ SoulSync / Spotify / Lucida / Amazon Music
+- Consulta SEMPRE preventivamente l'indice e i relativi trigger operativi in:
+  \$SKILL_PROJECT_PATH/README.md
+EOF
     fi
 }
 
@@ -293,6 +331,7 @@ link_profile_to_shared() {
 
     mkdir -p "$profile_config_dir"
     ln -sfn "$SHARED_DIR/skills" "$skills_dir"
+    ln -sf "$SHARED_DIR/GEMINI.md" "$profile_config_dir/GEMINI.md"
 }
 
 cmd_new() {
