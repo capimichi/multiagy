@@ -159,24 +159,12 @@ setup_profile_environment() {
     if [ -L "$cli_dir/conversations" ] || [ -L "$profile_config_dir/skills" ]; then
         setup_shared_environment
         ln -sf "$SHARED_DIR/GEMINI.md" "$profile_config_dir/GEMINI.md"
-    elif [ ! -f "$profile_config_dir/GEMINI.md" ]; then
+    elif [ ! -f "$profile_config_dir/GEMINI.md" ] || [ ! -s "$profile_config_dir/GEMINI.md" ]; then
         cat <<EOF > "$profile_config_dir/GEMINI.md"
 # Multiagy Profile Instructions
-- Profilo attivo: $profile
-- La vera home directory dell'utente su disco è: $REAL_HOME
-- Risolvi e tratta sempre i percorsi relativi alla home utente (o configurazioni personali) facendo riferimento a $REAL_HOME.
-
-# Skill & Automazioni Personali (\$SKILL_PROJECT_PATH)
-- La directory delle skill personali è definita dalla variabile d'ambiente \$SKILL_PROJECT_PATH (default: $REAL_HOME/workspace/capimichi-skills).
-- Per qualsiasi task operativo riguardante:
-  * Task, to-do list, promemoria o progetti ➔ TickTick (skill prioritaria)
-  * Documenti, fatture, scontrini o OCR ➔ Paperless
-  * Campagne affiliate, report conversioni o pixel ➔ Worldfilia
-  * Media, film, serie TV viste o cronologia ➔ Nuvio / Trakt / Stremio
-  * Amazon, acquisti o ordini ➔ Amazon
-  * Musica, tracce o download ➔ SoulSync / Spotify / Lucida / Amazon Music
-- Consulta SEMPRE preventivamente l'indice e i relativi trigger operativi in:
-  \$SKILL_PROJECT_PATH/README.md
+- Active profile: $profile
+- The user's real home directory on disk is: $REAL_HOME
+- Always resolve and treat paths relative to the user's home (or personal configurations) referring to $REAL_HOME.
 EOF
     fi
 
@@ -199,24 +187,12 @@ setup_shared_environment() {
     if [ ! -f "$SHARED_DIR/history.jsonl" ]; then
         touch "$SHARED_DIR/history.jsonl"
     fi
-    if [ ! -f "$SHARED_DIR/GEMINI.md" ]; then
+    if [ ! -f "$SHARED_DIR/GEMINI.md" ] || [ ! -s "$SHARED_DIR/GEMINI.md" ]; then
         cat <<EOF > "$SHARED_DIR/GEMINI.md"
 # Multiagy Shared Instructions
-- Ambiente: multi-profilo Antigravity CLI (multiagy).
-- La vera home directory dell'utente su disco è: $REAL_HOME
-- Risolvi e tratta sempre i percorsi relativi alla home utente (o configurazioni personali) facendo riferimento a $REAL_HOME.
-
-# Skill & Automazioni Personali (\$SKILL_PROJECT_PATH)
-- La directory delle skill personali è definita dalla variabile d'ambiente \$SKILL_PROJECT_PATH (default: $REAL_HOME/workspace/capimichi-skills).
-- Per qualsiasi task operativo riguardante:
-  * Task, to-do list, promemoria o progetti ➔ TickTick (skill prioritaria)
-  * Documenti, fatture, scontrini o OCR ➔ Paperless
-  * Campagne affiliate, report conversioni o pixel ➔ Worldfilia
-  * Media, film, serie TV viste o cronologia ➔ Nuvio / Trakt / Stremio
-  * Amazon, acquisti o ordini ➔ Amazon
-  * Musica, tracce o download ➔ SoulSync / Spotify / Lucida / Amazon Music
-- Consulta SEMPRE preventivamente l'indice e i relativi trigger operativi in:
-  \$SKILL_PROJECT_PATH/README.md
+- Environment: multi-profile Antigravity CLI (multiagy).
+- The user's real home directory on disk is: $REAL_HOME
+- Always resolve and treat paths relative to the user's home (or personal configurations) referring to $REAL_HOME.
 EOF
     fi
 }
